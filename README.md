@@ -2,6 +2,10 @@
 
 Maquette du nouveau site de **HMS Thailand**, faite par **Mabido Media** le 27/10/2026. C'est un **design**, pas le site en ligne : rien n'est publié.
 
+**À lire avant** : ce site est une démo. L'image ci-dessous (le robot MABIDO) présente les deux propositions : la refonte seule, ou la refonte avec de nouvelles fonctions.
+
+![Ce site est une démo : les deux propositions](A-LIRE-AVANT-demo.png)
+
 ## Le voir
 1. Sur GitHub : bouton vert **Code** → **Download ZIP**, puis décompresser.
 2. Double-cliquer sur **`index.html`** : le site s'ouvre dans le navigateur (Chrome conseillé).
