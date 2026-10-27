@@ -442,7 +442,7 @@ p { text-wrap: pretty; }
   .film-live .film-credit { top: 74px; bottom: auto; right: 12px; font-size: 0.68rem; }
   .film-credit { top: 74px; right: 12px; font-size: 0.68rem; }
   .film-live .illus-tag { top: 92px; font-size: 0.68rem; }
-  .film-live .scroll-cue { display: none; }
+  .film-live .scroll-cue { bottom: 64px; font-size: 0.78rem; padding: 8px 16px; white-space: nowrap; }
 }
 
 @media (prefers-reduced-motion: reduce) {
