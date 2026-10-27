@@ -359,16 +359,31 @@
   function still(src) { var im = new Image(); im.src = src; return im; }
   var V1 = seq('assets/seq/v1', 80), V3 = seq('assets/seq/v3', 80), V2 = seq('assets/seq/v2', 80);
   var ELEV_LOW = still('assets/film/elevator-low.jpg'), ELEV_HIGH = still('assets/film/elevator-high.jpg');
-  // load V1 first, then V3, then V2 (a missing V2 falls back to the two stills)
-  var queue = [V1, V3, V2];
-  (function loadNext(qi, i) {
-    if (qi >= queue.length) return;
-    var S = queue[qi];
-    if (i >= S.n) return loadNext(qi + 1, 0);
-    var im = S.frames[i];
-    im.onload = im.onerror = function () { if (im.naturalWidth === 0) im.failed = true; loadNext(qi, i + 1); };
+  // load V1 first, then V3, then V2, six at a time in film order (a missing V2 falls back to the two stills).
+  // S.upto counts the frames settled from the start, so a chapter can wait until its shot is complete online.
+  var queue = [], qPos = 0;
+  [V1, V3, V2].forEach(function (S) { S.upto = 0; for (var i = 0; i < S.n; i++) queue.push([S, i]); });
+  function settle(S) { while (S.upto < S.n && (S.frames[S.upto].ok || S.frames[S.upto].failed)) S.upto++; }
+  function loadOne() {
+    if (qPos >= queue.length) return;
+    var S = queue[qPos][0], im = S.frames[queue[qPos][1]]; qPos++;
+    im.onload = im.onerror = function () { if (im.naturalWidth) im.ok = true; else im.failed = true; settle(S); loadOne(); };
     im.src = im.dataset.src;
-  })(0, 0);
+  }
+  for (var w = 0; w < 6; w++) loadOne();
+  // the shots the film draws at p (same ranges as drawFilm), and whether they have all arrived
+  function shotsAt(p) {
+    var s = [];
+    if (p >= 0.06 && p < 0.275) s.push(V1);
+    if (p >= 0.265 && p < 0.47) s.push(V3);
+    if (p >= 0.6 && p < 0.878) s.push(V2);
+    return s;
+  }
+  function waitingFor(p) {
+    var s = shotsAt(p);
+    for (var i = 0; i < s.length; i++) if (s[i].upto < s[i].n) return s[i];
+    return null;
+  }
   function frameAt(S, k) {
     var i = Math.round(clamp(k) * (S.n - 1));
     for (var d = 0; d < S.n; d++) {             // nearest loaded frame
@@ -507,7 +522,7 @@
       // the button at the bottom: enter, continue, or skip the chapter that is playing
       var resting = !run && (p < 0.004 || Math.abs(p - STOPS[1]) < 0.003 || Math.abs(p - STOPS[2]) < 0.003);
       var playing = run && !run.back;
-      var cueText = playing ? 'Skip ›' : p < 0.004 ? 'Click or scroll to enter' : 'Click or scroll to continue';
+      var cueText = playing ? (run.wait != null ? 'Loading the film… ' + run.wait + '%' : 'Skip ›') : p < 0.004 ? 'Click or scroll to enter' : 'Click or scroll to continue';
       if ((resting || playing) && cue.textContent !== cueText) cue.textContent = cueText;
       cue.style.opacity = resting || playing ? '1' : '0';
       cue.style.pointerEvents = resting || playing ? 'auto' : 'none';
@@ -584,11 +599,18 @@
     else { run = null; play(dir); }
   }
   // the Skip button: to the end of the chapter in half a second
-  function skip() { if (run && !run.back) run.rate = Math.max(1, (run.c.T - run.t) / 0.5); }
+  function skip() { if (run && !run.back) { run.rate = Math.max(1, (run.c.T - run.t) / 0.5); run.skip = true; } }
   function step(now) {
     if (!run) return;
     var dt = Math.min(0.05, (now - run.last) / 1000);
-    run.last = now; run.t += dt * run.rate;
+    run.last = now;
+    // on a slow connection the chapter holds before a shot that has not fully arrived (the button shows how far)
+    if (!run.back && !run.skip) {
+      var S = waitingFor(run.c.at(run.t + dt * run.rate + 0.15));
+      run.wait = S ? Math.floor(100 * S.upto / S.n) : null;
+      if (S) return;
+    }
+    run.t += dt * run.rate;
     var p, done;
     if (run.back) { var k = clamp(run.t / run.T); p = lerp(run.from, run.to, ease(k)); done = k >= 1; }
     else { p = run.c.at(run.t); done = run.t >= run.c.T; }
@@ -618,7 +640,7 @@
     if (e.target.closest('a, button, input, .dnote')) return;
     if (!run && filmP() < 0.004) play(1);
   });
-  cue.addEventListener('click', function () { if (run) skip(); else play(1); });
+  cue.addEventListener('click', function () { if (!run) play(1); else if (run.wait == null) skip(); });
 
   // Touch: the first move decides; a swipe of 24px plays the chapter
   var touchY = null, touchDone = false;
