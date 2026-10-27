@@ -374,8 +374,8 @@ p { text-wrap: pretty; }
 }
 .preview-bar p { margin: 0; }
 .pv-short { display: none; }
-.is-solid .preview-bar p { display: none; }
-.is-solid .preview-bar { padding-left: 6px; }
+.is-solid .pv-long { display: none; }
+.is-solid .pv-short { display: inline; }
 .preview-bar button {
   flex: none; border: 0; border-radius: 999px; padding: 7px 12px; cursor: pointer;
   background: var(--amber); color: var(--navy); font: 600 0.76rem/1 var(--sans);

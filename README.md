@@ -1,6 +1,6 @@
 # HMS Thailand — nouveau site (maquette de design)
 
-Maquette du nouveau site de **HMS Thailand**, faite par **Mabido Media** le 27/10/2026. C'est un **design**, pas le site en ligne : rien n'est publié.
+Maquette du nouveau site de **HMS Thailand**, faite par **Mabido Media** le 27/10/2026. C'est un **design**, pas le site officiel de HMS. Aperçu en ligne, non référencé par les moteurs : https://joys3d.github.io/hms-thailand-site-design/
 
 **À lire avant** : ce site est une démo. L'image ci-dessous (le robot MABIDO) présente les deux propositions : la refonte seule, ou la refonte avec de nouvelles fonctions.
 
