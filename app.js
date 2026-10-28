@@ -1,5 +1,6 @@
 /* HMS Thailand — design preview by Mabido Media (v2, 27/10/2026).
-   The film is driven by scroll: video shots are image sequences drawn on a canvas,
+   The film plays like a video (play, pause, back, forward, a timeline) and moves the page as it
+   goes: video shots are image sequences drawn on a canvas,
    the software is drawn line by line on a second canvas. All real text lives in
    index.html; the illustration figures are painted in canvases, so no search
    engine or AI can read them as HMS data. Without JavaScript, or with reduced
@@ -336,7 +337,9 @@
   var floorNo = $('.floor-no', film), floorRail = $('.floor-rail', film);
   var traceEntrance = $('.trace-path', film), traceVillas = $('.trace-villas', film);
   var villaDots = $$('.trace-villas circle', film), entranceDot = $('.trace-path circle', film);
-  var cue = $('.scroll-cue', film), progress = $('.film-progress', film);
+  var cue = $('.scroll-cue', film);
+  var plPlay = $('.pl-play', film), plBack = $('.pl-back', film), plFwd = $('.pl-fwd', film);
+  var plTrack = $('.pl-track', film), plFill = $('.pl-fill', film), plNow = $('.pl-now', film), plTotal = $('.pl-total', film);
   var glow = document.createElement('div'); glow.className = 'screen-glow'; stage.appendChild(glow);
 
   // canvases (sharp on retina)
@@ -361,16 +364,24 @@
   var ELEV_LOW = still('assets/film/elevator-low.jpg'), ELEV_HIGH = still('assets/film/elevator-high.jpg');
   // load V1 first, then V3, then V2, six at a time in film order (a missing V2 falls back to the two stills).
   // S.upto counts the frames settled from the start, so a chapter can wait until its shot is complete online.
-  var queue = [], qPos = 0;
+  var queue = [], qPos = 0, loaded = 0;
   [V1, V3, V2].forEach(function (S) { S.upto = 0; for (var i = 0; i < S.n; i++) queue.push([S, i]); });
   function settle(S) { while (S.upto < S.n && (S.frames[S.upto].ok || S.frames[S.upto].failed)) S.upto++; }
   function loadOne() {
     if (qPos >= queue.length) return;
     var S = queue[qPos][0], im = S.frames[queue[qPos][1]]; qPos++;
-    im.onload = im.onerror = function () { if (im.naturalWidth) im.ok = true; else im.failed = true; settle(S); loadOne(); };
+    im.onload = im.onerror = function () { if (im.naturalWidth) im.ok = true; else im.failed = true; loaded++; settle(S); loadOne(); };
     im.src = im.dataset.src;
   }
   for (var w = 0; w < 6; w++) loadOne();
+  // a jump on the timeline: the shot there is loaded next
+  function prioritize(p) {
+    var S = shotsAt(p)[0];
+    if (!S || S.upto >= S.n) return;
+    var mine = [], rest = [];
+    for (var i = qPos; i < queue.length; i++) (queue[i][0] === S ? mine : rest).push(queue[i]);
+    queue = queue.slice(0, qPos).concat(mine, rest);
+  }
   // the shots the film draws at p (same ranges as drawFilm), and whether they have all arrived
   function shotsAt(p) {
     var s = [];
@@ -416,7 +427,7 @@
     node.classList.toggle('is-live', o > 0.5);
   }
 
-  var t0 = performance.now(), lastKey = '';
+  var lastKey = '', animT = 0, lastFrame = performance.now();
   resize();
   addEventListener('resize', resize);
 
@@ -451,11 +462,14 @@
     var r = film.getBoundingClientRect();
     var total = film.offsetHeight - innerHeight;
     var p = clamp(-r.top / total);
-    var t = (now - t0) / 1000;
+    var paused = entered && !playing && !back;       // on pause the whole picture stops, small motions too
+    if (!paused) animT += Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
+    var t = animT;
     var visible = r.bottom > 0 && r.top < innerHeight;
 
     if (visible) {
-      var key = p.toFixed(4) + '|' + CW + 'x' + CH;
+      var key = p.toFixed(4) + '|' + CW + 'x' + CH + '|' + loaded;
       if (key !== lastKey) { drawFilm(p); lastKey = key; }
       fc.style.opacity = (ramp(p, 0.045, 0.075) * (1 - ramp(p, 0.44, 0.47)) + ramp(p, 0.6, 0.64) * (1 - ramp(p, 0.855, 0.878))).toFixed(3);
 
@@ -519,18 +533,17 @@
       Z.media.style.opacity = (ramp(p, 0.945, 0.965) * 0.66).toFixed(3);
       setText(Z.text, win(p, 0.95, 2));
 
-      // the button at the bottom: enter, continue, or skip the chapter that is playing
-      var resting = !run && (p < 0.004 || Math.abs(p - STOPS[1]) < 0.003 || Math.abs(p - STOPS[2]) < 0.003);
-      var playing = run && !run.back;
-      var cueText = playing ? (run.wait != null ? 'Loading the film… ' + run.wait + '%' : 'Skip ›') : p < 0.004 ? 'Click or scroll to enter' : 'Click or scroll to continue';
-      if ((resting || playing) && cue.textContent !== cueText) cue.textContent = cueText;
-      cue.style.opacity = resting || playing ? '1' : '0';
-      cue.style.pointerEvents = resting || playing ? 'auto' : 'none';
-      progress.style.setProperty('--p', p.toFixed(4));
+      // the button at the bottom: enter the film, or how much of it has arrived on a slow connection
+      var waiting = playing && waitPct != null, cueOn = !entered || waiting;
+      var cueText = waiting ? 'Loading the film… ' + waitPct + '%' : 'Click or scroll to enter';
+      if (cueOn && cue.textContent !== cueText) cue.textContent = cueText;
+      cue.style.opacity = cueOn ? '1' : '0';
+      cue.style.pointerEvents = cueOn ? 'auto' : 'none';
+      updatePlayer();
 
       if (heroVideo) {
-        if (p < 0.08 && heroVideo.paused) { var pr = heroVideo.play(); if (pr && pr.catch) pr.catch(function () {}); }
-        else if (p >= 0.08 && !heroVideo.paused) heroVideo.pause();
+        if (p < 0.08 && !paused && heroVideo.paused) { var pr = heroVideo.play(); if (pr && pr.catch) pr.catch(function () {}); }
+        else if ((p >= 0.08 || paused) && !heroVideo.paused) heroVideo.pause();
       }
     } else if (heroVideo && !heroVideo.paused) {
       heroVideo.pause();
@@ -539,19 +552,19 @@
     requestAnimationFrame(frame);
   }
 
-  /* ---------- The film plays itself: one scroll, one chapter ---------- */
-  // Three runs, each from one stop to the next, as [film position, second] keyframes:
-  // camera moves keep their pace, and every chapter holds long enough to be read.
+  /* ---------- The film plays like a video: play, pause, back, forward, a timeline to drag ---------- */
+  // Three runs as [film position, second] keyframes: camera moves keep their pace, and every chapter holds
+  // long enough to be read. They play one after the other on one clock, with a short rest between them.
   // 1. sky -> path (hotel websites) -> lobby -> into the tablet -> the software draws itself
   // 2. out of the tablet -> the elevator climbs, floors 1 to 4 light up
   // 3. the view (assessment) -> a moment of dark -> the villas light up -> 95 · 5 · 2010
-  // After the last stop the page scrolls normally.
+  // After the end the page scrolls normally.
   var RUNS = [
     [[0, 0], [0.06, 0.9], [0.17, 4.3], [0.255, 7.5], [0.29, 8.7], [0.4, 12.2], [0.455, 13.8], [0.592, 19]],
     [[0.592, 0], [0.64, 1.5], [0.772, 7.6]],
     [[0.772, 0], [0.79, 0.6], [0.855, 4.2], [0.878, 5.2], [0.9, 6.4], [0.938, 8.8], [0.945, 9.6], [0.985, 11.2]]
   ];
-  var STOPS = [0, 0.592, 0.772, 0.985], LAST = STOPS[STOPS.length - 1], EPS = 0.002;
+  var STOPS = [0, 0.592, 0.772, 0.985], LAST = STOPS[STOPS.length - 1], EPS = 0.002, REST = 1;
   // a monotone cubic through the keyframes, at rest at both ends
   function curve(K) {
     var n = K.length, d = [], m = [], i;
@@ -575,48 +588,135 @@
     }
     return { T: K[n - 1][1], at: at, timeOf: timeOf };
   }
-  var CURVES = RUNS.map(curve);
-  var run = null;
+  var CURVES = RUNS.map(curve), START = [], TOTAL = 0;
+  CURVES.forEach(function (c, i) { START.push(TOTAL); TOTAL += c.T + (i < CURVES.length - 1 ? REST : 0); });
+  function pAt(s) {                                 // the film position at second s
+    for (var i = CURVES.length - 1; i > 0 && s < START[i]; i--);
+    return CURVES[i].at(Math.min(s - START[i], CURVES[i].T));
+  }
+  function timeAt(p) {                              // the second at film position p
+    if (p >= LAST) return TOTAL;
+    for (var i = 0; i < CURVES.length - 1 && p > STOPS[i + 1]; i++);
+    return START[i] + CURVES[i].timeOf(p);
+  }
 
+  var clock = 0, playing = false, entered = false, rate = 1, hurryTo = -1, waitPct = null, back = null;
+  var lastNow = performance.now(), lastSet = -1, scrubbing = false, scrubPlay = false;
   function filmP() { return clamp((window.pageYOffset - film.offsetTop) / (film.offsetHeight - innerHeight)); }
-  function goTo(p) { window.scrollTo(0, film.offsetTop + p * (film.offsetHeight - innerHeight)); }
-  // the stop to play to from p in direction dir, or -1 when the page should scroll normally
-  function target(p, dir) {
-    var i;
-    if (dir > 0 && p < LAST - EPS) { for (i = 1; i < STOPS.length; i++) if (STOPS[i] > p + EPS) return i; }
-    if (dir < 0 && p > EPS && p <= LAST + EPS) { for (i = STOPS.length - 2; i >= 0; i--) if (STOPS[i] < p - EPS) return i; }
-    return -1;
+  function goTo(p) { lastSet = p; window.scrollTo(0, film.offsetTop + p * (film.offsetHeight - innerHeight)); }
+  function play() {
+    if (clock >= TOTAL - 0.01) clock = 0;           // at the end: from the start again
+    back = null; playing = true; entered = true; rate = 1; hurryTo = -1;
+    goTo(pAt(clock));
   }
-  function play(dir) {
-    var p = filmP(), i = target(p, dir);
-    if (i < 0) return;
-    if (dir > 0) run = { c: CURVES[i - 1], t: CURVES[i - 1].timeOf(p), rate: 1, back: false, last: performance.now() };
-    else run = { from: p, to: STOPS[i], t: 0, T: Math.min(2.4, Math.max(0.8, (p - STOPS[i]) * 9)), rate: 1, back: true, last: performance.now() };
+  function pause() { playing = false; rate = 1; hurryTo = -1; waitPct = null; }
+  function toggle() {
+    if (back) { clock = timeAt(filmP()); back = null; pause(); }
+    else if (playing) pause();
+    else play();
   }
-  // one more scroll during a chapter: the same way fast-forwards it (it still plays), the other way turns back
-  function nudge(dir) {
-    if (dir === (run.back ? -1 : 1)) run.rate = Math.max(run.rate, 4);
-    else { run = null; play(dir); }
+  function seek(s) {
+    back = null; rate = 1; hurryTo = -1; entered = true;
+    clock = Math.max(0, Math.min(TOTAL, s));
+    var p = pAt(clock);
+    prioritize(p); goTo(p);
+    if (clock >= TOTAL) pause();
   }
-  // the Skip button: to the end of the chapter in half a second
-  function skip() { if (run && !run.back) { run.rate = Math.max(1, (run.c.T - run.t) / 0.5); run.skip = true; } }
-  function step(now) {
-    if (!run) return;
-    var dt = Math.min(0.05, (now - run.last) / 1000);
-    run.last = now;
-    // on a slow connection the chapter holds before a shot that has not fully arrived (the button shows how far)
-    if (!run.back && !run.skip) {
-      var S = waitingFor(run.c.at(run.t + dt * run.rate + 0.15));
-      run.wait = S ? Math.floor(100 * S.upto / S.n) : null;
-      if (S) return;
+  // One scroll gesture (wheel, swipe, arrow key) inside the film: down plays, or hurries the chapter that
+  // is playing (it still plays); up goes back to the start of the chapter. Outside the film the page scrolls.
+  function inFilm(dir) {
+    if (playing || back) return true;
+    var p = filmP();
+    return dir > 0 ? p < LAST - EPS : p > EPS && p <= LAST + EPS;
+  }
+  function gesture(dir) {
+    if (dir < 0) return rewind();
+    if (back) { clock = timeAt(filmP()); back = null; }
+    if (!playing) return play();
+    for (var i = 0; i < CURVES.length; i++) {
+      if (clock < START[i] + CURVES[i].T - 0.05) { hurryTo = START[i] + CURVES[i].T; rate = 4; return; }
     }
-    run.t += dt * run.rate;
-    var p, done;
-    if (run.back) { var k = clamp(run.t / run.T); p = lerp(run.from, run.to, ease(k)); done = k >= 1; }
-    else { p = run.c.at(run.t); done = run.t >= run.c.T; }
-    goTo(p);
-    if (done) run = null;
   }
+  function rewind() {
+    if (back) { back.rate = 4; return; }
+    var p = filmP(), i = STOPS.length - 2;
+    while (i >= 0 && STOPS[i] >= p - EPS) i--;
+    if (i < 0) return;
+    back = { from: p, to: STOPS[i], at: START[i], t: 0, T: Math.min(2.4, Math.max(0.8, (p - STOPS[i]) * 9)), rate: 1, resume: playing };
+    pause();
+  }
+  function step(now) {
+    var dt = Math.min(0.05, (now - lastNow) / 1000);
+    lastNow = now;
+    if (back) {
+      back.t += dt * back.rate;
+      var k = clamp(back.t / back.T);
+      goTo(lerp(back.from, back.to, ease(k)));
+      if (k >= 1) { clock = back.at; playing = back.resume; if (!playing && !clock) entered = false; back = null; }
+      return;
+    }
+    var p = filmP();
+    if (playing && Math.abs(p - lastSet) > 0.01) pause();   // the page was moved (a link, the scrollbar): the film stops there
+    if (!playing) {
+      if (!scrubbing && Math.abs(p - pAt(clock)) > 0.0008) { clock = timeAt(p); entered = p > 0.0005; }
+      return;
+    }
+    var next = clock + dt * rate;
+    // on a slow connection the film holds before a shot that has not fully arrived (the button shows how far)
+    var S = waitingFor(pAt(next + 0.15));
+    waitPct = S ? Math.floor(100 * S.upto / S.n) : null;
+    if (S) return;
+    if (hurryTo >= 0 && next >= hurryTo) { next = hurryTo; rate = 1; hurryTo = -1; }
+    clock = Math.min(next, TOTAL);
+    goTo(pAt(clock));
+    if (clock >= TOTAL) pause();
+  }
+
+  // The controls: play / pause, back 5 s, forward 5 s, the time, and the timeline with a mark per chapter
+  function fmt(s) { s = Math.round(s); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
+  plTotal.textContent = fmt(TOTAL);
+  plTrack.setAttribute('aria-valuemax', String(Math.round(TOTAL)));
+  [[0.17, 'Hotel websites'], [0.455, 'Hotel software'], [0.64, 'Revenue management'], [0.79, 'Sales and marketing assessment'], [0.9, 'Then the rooms fill']].forEach(function (m) {
+    var mk = document.createElement('span');
+    mk.className = 'pl-mark'; mk.title = m[1];
+    mk.style.setProperty('--at', (timeAt(m[0]) / TOTAL).toFixed(4));
+    plTrack.insertBefore(mk, plFill);
+  });
+  var shownSec = -1, shownState = '';
+  function updatePlayer() {
+    root.classList.toggle('film-entered', entered);
+    var state = playing || back ? 'playing' : clock >= TOTAL - 0.01 ? 'ended' : 'paused';
+    if (state !== shownState) {
+      shownState = state;
+      plPlay.setAttribute('data-state', state);
+      plPlay.setAttribute('aria-label', state === 'playing' ? 'Pause' : state === 'ended' ? 'Play again' : 'Play');
+    }
+    plTrack.style.setProperty('--pos', (clock / TOTAL).toFixed(4));
+    var sec = Math.round(clock);
+    if (sec !== shownSec) {
+      shownSec = sec;
+      plNow.textContent = fmt(clock);
+      plTrack.setAttribute('aria-valuenow', String(sec));
+      plTrack.setAttribute('aria-valuetext', fmt(clock) + ' of ' + fmt(TOTAL));
+    }
+  }
+  plPlay.addEventListener('click', toggle);
+  plBack.addEventListener('click', function () { seek(clock - 5); });
+  plFwd.addEventListener('click', function () { seek(clock + 5); });
+  // drag the timeline: the film follows the finger or the mouse, and plays on if it was playing
+  function scrubTo(e) { var r = plTrack.getBoundingClientRect(); seek(TOTAL * clamp((e.clientX - r.left) / r.width)); }
+  plTrack.addEventListener('pointerdown', function (e) {
+    if (e.button) return;
+    scrubbing = true; scrubPlay = playing || !!(back && back.resume);
+    back = null; pause();
+    if (plTrack.setPointerCapture) plTrack.setPointerCapture(e.pointerId);
+    scrubTo(e);
+  });
+  plTrack.addEventListener('pointermove', function (e) { if (scrubbing) scrubTo(e); });
+  function endScrub() { if (!scrubbing) return; scrubbing = false; if (scrubPlay && clock < TOTAL) play(); }
+  plTrack.addEventListener('pointerup', endScrub);
+  plTrack.addEventListener('pointercancel', endScrub);
+  window.HMSFilm = { state: function () { return { t: clock, total: TOTAL, playing: playing, entered: entered }; } }; // read by the tests
 
   // Wheel and trackpad: one gesture, one action. A trackpad gesture starts with tiny steps, so a gesture
   // counts as soon as it has moved 12 pixels in all; the rest of it (and its momentum) is swallowed.
@@ -626,49 +726,60 @@
     var now = performance.now(), dir = e.deltaY > 0 ? 1 : -1;
     if (now - lastWheel > 240) { gestureSum = 0; gestureUsed = false; }
     lastWheel = now;
-    if (!run && target(filmP(), dir) < 0) return;
+    if (!inFilm(dir)) return;
     e.preventDefault();
     gestureSum += Math.abs(e.deltaY) * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? innerHeight : 1);
     if (gestureUsed || gestureSum < 12) return;
     gestureUsed = true;
-    if (run) nudge(dir); else play(dir);
+    gesture(dir);
   }, { passive: false });
 
-  // Click to enter: on the opening screen, a click outside links and buttons starts the visit;
-  // the button at the bottom enters, continues, or skips the chapter that is playing
+  // A click on the picture: on the opening screen it starts the visit, then it pauses and plays, like a video.
+  // The button at the bottom of the opening screen does the same.
   stage.addEventListener('click', function (e) {
-    if (e.target.closest('a, button, input, .dnote')) return;
-    if (!run && filmP() < 0.004) play(1);
+    if (e.target.closest('a, button, input, .dnote, .player')) return;
+    if (!entered) play();
+    else if (playing || back || clock < TOTAL - 0.01) toggle();
   });
-  cue.addEventListener('click', function () { if (!run) play(1); else if (run.wait == null) skip(); });
+  cue.addEventListener('click', function () { if (!playing) play(); });
 
-  // Touch: the first move decides; a swipe of 24px plays the chapter
+  // Touch: the first move decides; a swipe of 24px plays the chapter (the timeline handles its own touches)
   var touchY = null, touchDone = false;
   addEventListener('touchstart', function (e) {
-    touchY = e.touches.length === 1 ? e.touches[0].clientY : null; touchDone = false;
+    var onPlayer = e.target.closest && e.target.closest('.player');
+    touchY = e.touches.length === 1 && !onPlayer ? e.touches[0].clientY : null; touchDone = false;
   }, { passive: true });
   addEventListener('touchmove', function (e) {
     if (touchY === null) return;
-    var dy = touchY - e.touches[0].clientY, dir = dy > 0 ? 1 : -1, p = filmP();
-    var down = target(p, 1) >= 0, up = target(p, -1) >= 0;
-    if (!run && !(down && up) && !(dy > 0 && down) && !(dy < 0 && up)) { touchY = null; return; }
+    var dy = touchY - e.touches[0].clientY, dir = dy > 0 ? 1 : -1;
+    var down = inFilm(1), up = inFilm(-1);
+    if (!(down && up) && !(dy > 0 && down) && !(dy < 0 && up)) { touchY = null; return; }
     if (e.cancelable) e.preventDefault();
     if (touchDone || Math.abs(dy) < 24) return;
     touchDone = true;
-    if (run) nudge(dir); else play(dir);
+    gesture(dir);
   }, { passive: false });
 
-  // Keyboard: arrows, page keys and the space bar move chapter by chapter
+  // Keyboard, while the film is on screen: space pauses and plays, left and right arrows go 5 s back or
+  // forward; down, up and the page keys work like one scroll gesture
   addEventListener('keydown', function (e) {
-    var k = e.key, dir = 0;
-    if (k === 'ArrowDown' || k === 'PageDown' || (k === ' ' && !e.shiftKey)) dir = 1;
-    else if (k === 'ArrowUp' || k === 'PageUp' || (k === ' ' && e.shiftKey)) dir = -1;
-    if (!dir || e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
     if (e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+    var r = film.getBoundingClientRect(), onFilm = r.bottom > 0 && r.top < innerHeight && filmP() < LAST - EPS;
+    if (k === ' ' && !e.shiftKey) {
+      if (!onFilm || (e.target.closest && e.target.closest('a, button'))) return;
+      e.preventDefault(); toggle(); return;
+    }
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      if (!entered || !(r.bottom > 0 && r.top < innerHeight) || filmP() > LAST + EPS) return;
+      e.preventDefault(); seek(clock + (k === 'ArrowRight' ? 5 : -5)); return;
+    }
+    var dir = k === 'ArrowDown' || k === 'PageDown' ? 1 : k === 'ArrowUp' || k === 'PageUp' || (k === ' ' && e.shiftKey) ? -1 : 0;
+    if (!dir || !inFilm(dir)) return;
     if (k === ' ' && e.target.closest && e.target.closest('a, button')) return;
-    if (!run && target(filmP(), dir) < 0) return;
     e.preventDefault();
-    if (run) nudge(dir); else play(dir);
+    gesture(dir);
   });
 
   requestAnimationFrame(frame);

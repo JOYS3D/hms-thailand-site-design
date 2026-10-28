@@ -9,7 +9,7 @@ Maquette du nouveau site de **HMS Thailand**, faite par **Mabido Media** le 27/1
 ## Le voir
 1. Sur GitHub : bouton vert **Code** → **Download ZIP**, puis décompresser.
 2. Double-cliquer sur **`index.html`** : le site s'ouvre dans le navigateur (Chrome conseillé).
-3. **Cliquer ou scroller une fois** : la visite de l'hôtel se joue toute seule, chapitre par chapitre. Le bouton en bas permet d'entrer, de continuer ou de passer une scène.
+3. **Cliquer ou scroller une fois** : la visite de l'hôtel se joue toute seule, comme une vidéo (40 s). La barre en bas permet de mettre en pause, de revenir 5 s en arrière, d'avancer de 5 s, ou de faire glisser la barre du temps. Au clavier : espace = pause, flèches gauche et droite = 5 s.
 
 Il faut Internet pour les polices ; sans Internet, le site s'affiche avec des polices de secours.
 

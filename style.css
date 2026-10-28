@@ -121,7 +121,7 @@ p { text-wrap: pretty; }
 /* ---------- The film ---------- */
 .film { position: relative; background: var(--navy); color: #fff; }
 .film-stage { position: relative; }
-.film-canvas, .film-progress, .scroll-cue, .floor-display, .dash-canvas, .illus-tag { display: none; }
+.film-canvas, .player, .scroll-cue, .floor-display, .dash-canvas, .illus-tag { display: none; }
 .scene { position: relative; min-height: 100vh; min-height: 100svh; display: flex; align-items: flex-end; overflow: hidden; }
 .scene-media { position: absolute; inset: 0; }
 .media-video, .media-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -239,8 +239,34 @@ p { text-wrap: pretty; }
 }
 .film-live .scene-numbers .scene-media { background: var(--navy); }
 .film-live .film-credit { top: auto; bottom: 16px; }
-.film-live .film-progress { display: block; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; z-index: 6; }
-.film-live .film-progress i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: linear-gradient(90deg, var(--orange), var(--amber)); }
+/* The film's controls, like a video player: shown once the visit has started */
+.film-live .player {
+  display: flex; align-items: center; gap: 4px;
+  position: absolute; left: 50%; bottom: 60px; z-index: 7; transform: translateX(-50%);
+  width: min(640px, calc(100% - 2 * var(--gutter))); padding: 5px 16px 5px 5px; border-radius: 999px;
+  background: rgba(15, 28, 44, 0.66); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 10px 30px rgba(0, 0, 0, 0.25);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); color: #fff;
+  opacity: 0; visibility: hidden; transition: opacity 0.4s, visibility 0s 0.4s;
+}
+.film-live.film-entered .player { opacity: 1; visibility: visible; transition: opacity 0.4s; }
+.pl-btn { flex: none; display: grid; place-items: center; width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #fff; cursor: pointer; }
+.pl-btn:hover { background: rgba(255, 255, 255, 0.14); }
+.pl-btn svg { width: 24px; height: 24px; fill: currentColor; }
+.pl-btn text { font: 700 8.5px var(--sans); }
+.pl-play { margin-right: 2px; background: var(--orange); }
+.pl-play:hover { background: var(--orange-deep); }
+.pl-play svg { display: none; }
+.pl-play[data-state="paused"] .i-play, .pl-play[data-state="playing"] .i-pause, .pl-play[data-state="ended"] .i-again { display: block; }
+.pl-time { flex: none; min-width: 2.7em; text-align: center; font: 500 0.8rem/1 var(--sans); font-variant-numeric: tabular-nums; color: rgba(255, 255, 255, 0.85); }
+.pl-track { position: relative; flex: 1; align-self: stretch; margin: 0 8px; cursor: pointer; touch-action: none; border-radius: 6px; }
+.pl-track::before { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; background: rgba(255, 255, 255, 0.22); }
+.pl-mark { position: absolute; top: 50%; left: calc(var(--at) * 100%); width: 2px; height: 10px; margin: -5px 0 0 -1px; border-radius: 1px; background: rgba(255, 255, 255, 0.5); }
+.pl-fill { position: absolute; left: 0; top: 50%; height: 4px; margin-top: -2px; border-radius: 4px; width: calc(var(--pos, 0) * 100%); background: linear-gradient(90deg, var(--orange), var(--amber)); }
+.pl-knob { position: absolute; top: 50%; left: calc(var(--pos, 0) * 100%); width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 3px rgba(235, 87, 34, 0.55); }
+.pl-track:hover .pl-knob, .pl-track:focus-visible .pl-knob { transform: scale(1.2); }
+.film-live.film-entered .scroll-cue { bottom: 124px; }
+/* the chapter texts sit above the controls */
+.film-live .scene:not(.scene-arrive) .scene-text { padding-bottom: 128px; }
 .film-live .scroll-cue {
   display: block; position: absolute; left: 50%; bottom: 30px; z-index: 6; margin: 0;
   transform: translateX(-50%); font-size: 0.85rem; color: rgba(255, 255, 255, 0.85);
@@ -443,6 +469,12 @@ p { text-wrap: pretty; }
   .film-credit { top: 74px; right: 12px; font-size: 0.68rem; }
   .film-live .illus-tag { top: 92px; font-size: 0.68rem; }
   .film-live .scroll-cue { bottom: 64px; font-size: 0.78rem; padding: 8px 16px; white-space: nowrap; }
+  .film-live .player { bottom: 60px; width: calc(100% - 24px); padding-right: 12px; gap: 0; }
+  .pl-btn { width: 36px; height: 36px; }
+  .pl-track { margin: 0 6px; }
+  .pl-time { min-width: 2.4em; font-size: 0.74rem; }
+  .film-live.film-entered .scroll-cue { bottom: 116px; }
+  .film-live .scene:not(.scene-arrive) .scene-text { padding-bottom: 120px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

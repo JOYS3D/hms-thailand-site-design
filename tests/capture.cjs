@@ -76,38 +76,91 @@ async function scrollToP(page, p) {
     ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), 'aucun débordement horizontal à ' + w + ' px');
   }
 
-  // The film plays itself: one gesture per chapter (wheel events, as a mouse or a trackpad sends them)
+  // The film plays like a video: it enters as before, then play / pause, 5 s back or forward, a timeline to drag
   await page.setViewportSize({ width: 1440, height: 900 });
   const fp = () => page.evaluate(() => { const f = document.getElementById('film'); return (scrollY - f.offsetTop) / (f.offsetHeight - innerHeight); });
   const cueText = () => page.evaluate(() => document.querySelector('.scroll-cue').textContent);
+  const st = () => page.evaluate(() => window.HMSFilm.state());
+  const shown = (sel) => page.evaluate((s) => { const c = getComputedStyle(document.querySelector(s)); return c.visibility === 'visible' && c.opacity === '1'; }, sel);
+  const label = () => page.evaluate(() => document.querySelector('.pl-play').getAttribute('aria-label'));
+  const track = async (x) => { const bx = await page.locator('.pl-track').boundingBox(); return [bx.x + bx.width * x, bx.y + bx.height / 2]; };
   await page.evaluate(() => scrollTo(0, 0)); await page.waitForTimeout(900);
   ok((await cueText()) === 'Click or scroll to enter', 'à l\'arrivée, le bouton « Click or scroll to enter » s\'affiche');
+  ok(!(await shown('.player')), 'à l\'arrivée, pas de barre de lecture : l\'entrée reste comme avant');
   await page.mouse.move(700, 450);
   for (const d of [1, 1, 2, 3, 5, 7, 9, 11]) { await page.mouse.wheel(0, d); await page.waitForTimeout(16); }   // a trackpad gesture starts small
   await page.waitForTimeout(1500);
   const p1 = await fp();
-  ok(p1 > 0.02 && p1 < 0.2, 'un geste de trackpad (petits pas) lance la cinématique (p=' + p1.toFixed(3) + ')');
-  ok((await cueText()) === 'Skip ›', 'pendant la cinématique, le bouton « Skip › » s\'affiche');
-  await page.click('.scroll-cue');                      // Skip
-  await page.waitForTimeout(1500);
-  const p2 = await fp();
-  ok(Math.abs(p2 - 0.592) < 0.004, 'Skip passe la scène et s\'arrête sur le logiciel dessiné (p=' + p2.toFixed(3) + ')');
-  ok((await cueText()) === 'Click or scroll to continue', 'à l\'arrêt, « Click or scroll to continue » s\'affiche');
-  // click to enter, from the top
+  ok(p1 > 0.02 && p1 < 0.2, 'un geste de trackpad (petits pas) lance le film (p=' + p1.toFixed(3) + ')');
+  await page.waitForTimeout(500);
+  ok(await shown('.player') && (await label()) === 'Pause', 'dès que le film démarre, la barre de lecture apparaît (bouton pause)');
+  await page.screenshot({ path: path.join(OUT, 'desktop-lecteur-lecture.png') });
+  await page.click('.pl-play');
+  const sa = await st(), pa = await fp(); await page.waitForTimeout(1200); const sb = await st();
+  ok(!sb.playing && Math.abs(sb.t - sa.t) < 0.01 && Math.abs((await fp()) - pa) < 0.0005, 'pause : le film s\'arrête et l\'image ne bouge plus');
+  ok((await label()) === 'Play', 'en pause, le bouton devient « lecture »');
+  await page.click('.pl-fwd'); await page.click('.pl-fwd');
+  const sf = await st();
+  ok(Math.abs(sf.t - (sb.t + 10)) < 0.05, '+5 s deux fois : le film avance de 10 s (' + sb.t.toFixed(1) + ' → ' + sf.t.toFixed(1) + ' s)');
+  await page.click('.pl-back');
+  const sk = await st();
+  ok(Math.abs(sk.t - (sf.t - 5)) < 0.05, '-5 s : le film recule de 5 s (→ ' + sk.t.toFixed(1) + ' s)');
+  let xy = await track(0.5); await page.mouse.click(xy[0], xy[1]); await page.waitForTimeout(500);
+  const sm = await st();
+  ok(Math.abs(sm.t - sm.total / 2) < 0.6 && !sm.playing, 'un clic au milieu de la barre amène au milieu du film, toujours en pause (' + sm.t.toFixed(1) + ' / ' + sm.total + ' s)');
+  await page.screenshot({ path: path.join(OUT, 'desktop-lecteur-pause.png') });
+  xy = await track(0.5); const xy2 = await track(0.25);
+  await page.mouse.move(xy[0], xy[1]); await page.mouse.down(); await page.mouse.move(xy2[0], xy2[1], { steps: 8 }); await page.mouse.up();
+  await page.waitForTimeout(400);
+  const sd = await st();
+  ok(Math.abs(sd.t - sd.total / 4) < 0.6, 'on fait glisser la barre en arrière : le film suit (' + sd.t.toFixed(1) + ' s)');
+  xy = await track(17 / sm.total); await page.mouse.click(xy[0], xy[1]); await page.click('.pl-play');
+  await page.waitForTimeout(4600);
+  const sc = await st(), pcx = await fp();
+  ok(sc.playing && sc.t > 20.5 && pcx > 0.6, 'le film enchaîne les chapitres sans s\'arrêter, comme une vidéo (' + sc.t.toFixed(1) + ' s, p=' + pcx.toFixed(3) + ')');
+  await page.evaluate(() => document.activeElement && document.activeElement.blur());
+  await page.keyboard.press(' '); await page.waitForTimeout(300);
+  const s1 = await st();
+  await page.keyboard.press(' '); await page.waitForTimeout(300);
+  const s2 = await st();
+  ok(!s1.playing && s2.playing, 'la barre d\'espace met en pause puis relance');
+  await page.keyboard.press('ArrowLeft');
+  const s3 = await st();
+  ok(s3.t < s2.t - 4.5, 'flèche gauche : 5 s en arrière');
+  xy = await track(21.5 / sm.total); await page.mouse.click(xy[0], xy[1]); await page.waitForTimeout(200);   // into the elevator chapter, still playing
+  await page.mouse.move(700, 450);
+  const sw0 = await st();
+  await page.mouse.wheel(0, 120); await page.waitForTimeout(16); await page.mouse.wheel(0, 120);
+  await page.waitForTimeout(1000);
+  const sw1 = await st();
+  ok(sw1.t - sw0.t > 1.8 && sw1.playing, 'un scroll pendant la lecture accélère le chapitre sans le sauter (' + sw0.t.toFixed(1) + ' → ' + sw1.t.toFixed(1) + ' s)');
+  await page.click('.pl-play'); await page.waitForTimeout(1100);   // pause, then scroll up: back to the start of the chapter
+  await page.mouse.wheel(0, -120); await page.waitForTimeout(2800);
+  const pu = await fp();
+  ok(Math.abs(pu - 0.592) < 0.004 && !(await st()).playing, 'un scroll vers le haut ramène au début du chapitre (p=' + pu.toFixed(3) + ')');
+  xy = await track((sm.total - 2) / sm.total); await page.mouse.click(xy[0], xy[1]); await page.click('.pl-play');
+  await page.waitForTimeout(3200);
+  const se = await st(), pe = await fp();
+  ok(!se.playing && se.t === se.total && Math.abs(pe - 0.985) < 0.003 && (await label()) === 'Play again', 'fin du film : il s\'arrête sur les chiffres, bouton « revoir »');
+  const y0 = await page.evaluate(() => scrollY);
+  await page.mouse.move(700, 300); await page.mouse.wheel(0, 400); await page.waitForTimeout(600);
+  ok((await page.evaluate(() => scrollY)) > y0 + 100, 'après la fin, la molette fait défiler le site normalement');
+  await page.evaluate((y) => scrollTo(0, y), y0); await page.waitForTimeout(400);
+  await page.click('.pl-play'); await page.waitForTimeout(800);
+  const sr = await st();
+  ok(sr.playing && sr.t < 1.5, '« revoir » relance le film depuis le début');
+  await page.mouse.click(1250, 300); await page.waitForTimeout(300);
+  ok(!(await st()).playing, 'un clic sur l\'image met en pause, comme une vidéo');
+  // back to the opening screen by hand, then a click on the picture starts the visit
   await page.evaluate(() => scrollTo(0, 0)); await page.waitForTimeout(700);
+  ok((await cueText()) === 'Click or scroll to enter' && !(await st()).entered, 'revenu tout en haut, l\'écran d\'entrée revient');
   await page.mouse.click(1250, 300);
   await page.waitForTimeout(1500);
   const pc = await fp();
   ok(pc > 0.02 && pc < 0.2, 'un clic sur l\'image d\'arrivée lance la visite (p=' + pc.toFixed(3) + ')');
-  await page.mouse.wheel(0, 120); await page.waitForTimeout(16); await page.mouse.wheel(0, 120);
-  await page.waitForTimeout(1000);
-  const pf = await fp();
-  ok(pf > pc + 0.08 && pf < 0.592, 'un scroll pendant la visite accélère la scène sans la sauter (p=' + pf.toFixed(3) + ')');
-  await page.click('.scroll-cue'); await page.waitForTimeout(1500);
-  await page.keyboard.press('ArrowDown'); await page.waitForTimeout(400); await page.keyboard.press('ArrowDown');
-  await page.waitForTimeout(3500);
-  const p3 = await fp();
-  ok(Math.abs(p3 - 0.772) < 0.004 && await page.evaluate(() => document.querySelector('.floor-no').textContent === '4'), 'flèche du clavier : l\'ascenseur monte seul jusqu\'à l\'étage 4');
+  xy = await track(21 / sm.total); await page.mouse.click(xy[0], xy[1]);   // it was playing: it plays on from there
+  await page.waitForTimeout(6500);
+  ok(await page.evaluate(() => document.querySelector('.floor-no').textContent === '4'), 'l\'ascenseur monte seul jusqu\'à l\'étage 4');
   await page.evaluate(() => { const f = document.getElementById('film'); scrollTo(0, f.offsetTop + 0.886 * (f.offsetHeight - innerHeight)); });
   await page.waitForTimeout(400);
   ok(await page.evaluate(() => /brightness\(0\.[0-6]/.test(document.querySelector('.scene-night .scene-media').style.filter)), 'la nuit commence par un moment sombre');
@@ -123,6 +176,14 @@ async function scrollToP(page, p) {
     await scrollToP(m, p);
     await m.screenshot({ path: path.join(OUT, `mobile-film-${String(Math.round(p * 100)).padStart(3, '0')}.png`) });
   }
+  await scrollToP(m, 0);
+  await m.tap('.scroll-cue'); await m.waitForTimeout(1500);
+  const mb = await m.evaluate(() => { const r = document.querySelector('.player').getBoundingClientRect(), b = document.querySelector('.pl-back').getBoundingClientRect(); return { l: r.left, r: r.right, w: innerWidth, btn: b.width, on: window.HMSFilm.state().playing }; });
+  ok(mb.on && mb.l >= 0 && mb.r <= mb.w && mb.btn >= 36, 'téléphone : la barre de lecture tient dans l\'écran, boutons de ' + Math.round(mb.btn) + ' px');
+  await m.screenshot({ path: path.join(OUT, 'mobile-lecteur.png') });
+  await m.tap('.pl-play'); await m.waitForTimeout(300);
+  ok(!(await m.evaluate(() => window.HMSFilm.state().playing)), 'téléphone : le bouton pause marche au doigt');
+  await m.evaluate(() => scrollTo(0, 0)); await m.waitForTimeout(500);
   await m.click('.menu-btn');
   await m.waitForTimeout(200);
   ok(await m.isVisible('#main-nav a[href="#results"]'), 'menu téléphone : les liens s\'affichent');
